@@ -208,9 +208,42 @@ export class PythonExecutionService {
 
   constructor() {}
 
+  private async execWithPythonPaths(command: string, args: string[], options: SpawnOptions): Promise<ExecutionResult<string>> {
+    let pythonPaths = [command];
+    let moduleError: Error | undefined;
+
+    // If the config python path is different, add it to the list of possible paths
+    if (this.pythonSettings.configPythonPath !== pythonPaths[0]) {
+      pythonPaths.push(this.pythonSettings.configPythonPath);
+    }
+
+    // Try each python path until a successful execution or all paths have been tried
+    for (const pythonPath of pythonPaths) {
+      try {
+        const result = await this.procService.exec(pythonPath, args, options);
+
+        // If a module is not installed we'll have something in stderr.
+        if (ErrorUtils.outputHasModuleNotInstalledError(args[1], result.stderr)) {
+          moduleError = new ModuleNotInstalledError(args[1]);
+        }
+        return result;
+      } catch (err) {
+        // Do nothing and continue trying other python paths
+      }
+    }
+
+    // If we have an error, throw it
+    if (moduleError) {
+      throw moduleError;
+    }
+    // If none of the python paths worked, throw an error
+    throw new StdErrError(`Failed to run '${command} ${args.join(' ')}'`);
+  }
+
   public async isModuleInstalled(moduleName: string): Promise<boolean> {
-    return this.procService
-      .exec(this.pythonSettings.pythonPath, ['-c', `import ${moduleName}`], { throwOnStdErr: true })
+    const args = ['-c', `import ${moduleName}`];
+    const options = { throwOnStdErr: true };
+    return this.execWithPythonPaths(this.pythonSettings.pythonPath, args, options)
       .then(() => true)
       .catch(() => false);
   }
@@ -225,7 +258,7 @@ export class PythonExecutionService {
     const { execPath, moduleName, args } = executionInfo;
 
     if (moduleName && moduleName.length > 0) {
-      const result = await this.procService.exec(this.pythonSettings.pythonPath, ['-m', moduleName, ...args], opts);
+      const result = await this.execWithPythonPaths(this.pythonSettings.pythonPath, ['-m', moduleName, ...args], opts);
 
       // If a module is not installed we'll have something in stderr.
       if (ErrorUtils.outputHasModuleNotInstalledError(moduleName, result.stderr)) {

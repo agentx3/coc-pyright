@@ -17,7 +17,9 @@ export class PythonSettings implements IPythonSettings {
 
   private disposables: Disposable[] = [];
   private _pythonPath = '';
+  private _configPythonPath = ''; // pythonPath from config, since pythonPath can be modified by having a venv
   private _stdLibs: string[] = [];
+  private _configStdLibs: string[] = []; // This depends on the pythonPath, hence the need to store it separately. Currently not used.
 
   constructor() {
     this.workspaceRoot = workspace.root ? workspace.root : __dirname;
@@ -111,7 +113,9 @@ export class PythonSettings implements IPythonSettings {
   protected update(pythonSettings: WorkspaceConfiguration) {
     const systemVariables: SystemVariables = new SystemVariables(this.workspaceRoot ? this.workspaceRoot : undefined);
     const vp = this.resolvePythonFromVENV();
+
     this.pythonPath = vp ? vp : systemVariables.resolve(pythonSettings.get('pythonPath') as string);
+    this.configPythonPath = systemVariables.resolve(pythonSettings.get('pythonPath') as string);
 
     const lintingSettings = systemVariables.resolveAny(pythonSettings.get<ILintingSettings>('linting'))!;
     if (this.linting) {
@@ -153,6 +157,25 @@ export class PythonSettings implements IPythonSettings {
 
   public get stdLibs(): string[] {
     return this._stdLibs;
+  }
+
+  public get configStdLibs(): string[] {
+    return this._configStdLibs;
+  }
+  public get configPythonPath(): string {
+    return this._configPythonPath;
+  }
+
+  public set configPythonPath(value: string) {
+    if (this._configPythonPath === value) {
+      return;
+    }
+    try {
+      this._configPythonPath = getPythonExecutable(value);
+      this._configStdLibs = getStdLibs(this._configPythonPath);
+    } catch (ex) {
+      this._configPythonPath = value;
+    }
   }
 
   public get pythonPath(): string {
